@@ -1,5 +1,3 @@
-const canvas = document.querySelector('canvas');
-const ctx = canvas.getContext('2d', { desynchronized: true });
 const startRecordingButton = document.querySelector('#start-recording');
 const endRecordingButton = document.querySelector('#end-recording');
 const recordingStatus = document.querySelector('#recording-status');
@@ -14,15 +12,22 @@ let recording = false;
 let audioTrack = null;
 let firstAudioTimestamp = null;
 let intervalId = null;
-let lastKeyFrame = null;
 
 const startRecording = async () => {
 	startRecordingButton.style.display = 'none';
 
+
 	// Try to get access to the user's microphone
 	let userMedia = null;
 	try {
-		userMedia = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+		// userMedia = await navigator.mediaDevices.getUserMedia({ audio: true, video: false});
+        userMedia = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: {
+                sampleSize: 16,
+                channelCount: 2,
+            },
+        })
 		audioTrack = userMedia.getAudioTracks()[0];
 	} catch (e) {}
 	if (!audioTrack) console.warn("Couldn't acquire a user media audio track.");
@@ -31,32 +36,18 @@ const startRecording = async () => {
 
 	let audioSampleRate = audioTrack?.getCapabilities().sampleRate.max;
 
+    console.log(audioSampleRate);
+
 	// Create a WebM muxer with a video track and maybe an audio track
 	muxer = new WebMMuxer({
 		target: 'buffer',
-		video: {
-			codec: 'V_VP9',
-			width: canvas.width,
-			height: canvas.height,
-			frameRate: 30
-		},
-		audio: audioTrack ? {
+		audio: {
 			codec: 'A_OPUS',
 			sampleRate: audioSampleRate,
-			numberOfChannels: 1
-		} : undefined
+			numberOfChannels: 2
+		}
 	});
 
-	videoEncoder = new VideoEncoder({
-		output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-		error: e => console.error(e)
-	});
-	videoEncoder.configure({
-		codec: 'vp09.00.10.08',
-		width: canvas.width,
-		height: canvas.height,
-		bitrate: 1e6
-	});
 
 	if (audioTrack) {
 		audioEncoder = new AudioEncoder({
@@ -72,7 +63,7 @@ const startRecording = async () => {
 		});
 		audioEncoder.configure({
 			codec: 'opus',
-			numberOfChannels: 1,
+			numberOfChannels: 2,
 			sampleRate: audioSampleRate,
 			bitrate: 64000,
 		});
@@ -91,29 +82,27 @@ const startRecording = async () => {
 
 	startTime = document.timeline.currentTime;
 	recording = true;
-	lastKeyFrame = -Infinity;
-
-	encodeVideoFrame();
-	intervalId = setInterval(encodeVideoFrame, 1000/30);
+    drawStatus();
 };
 startRecordingButton.addEventListener('click', startRecording);
 
-const encodeVideoFrame = () => {
-	let elapsedTime = document.timeline.currentTime - startTime;
-	let frame = new VideoFrame(canvas, {
-		timestamp: elapsedTime * 1000
-	});
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-	// Ensure a video key frame at least every 10 seconds
-	let needsKeyFrame = elapsedTime - lastKeyFrame >= 10000;
-	if (needsKeyFrame) lastKeyFrame = elapsedTime;
+const drawStatus = async () => {
+    while (recording == true) {
+        let elapsedTime = document.timeline.currentTime - startTime;
+        await sleep(100);
 
-	videoEncoder.encode(frame, { keyFrame: needsKeyFrame });
-	frame.close();
+        recordingStatus.textContent =
+               `${elapsedTime % 1000 < 500 ? '🔴' : '⚫'} Recording - ${(elapsedTime / 1000).toFixed(1)} s`;
+    }
+    recordingStatus.textContent = '';
 
-	recordingStatus.textContent =
-		`${elapsedTime % 1000 < 500 ? '🔴' : '⚫'} Recording - ${(elapsedTime / 1000).toFixed(1)} s`;
 };
+
+
 
 const endRecording = async () => {
 	endRecordingButton.style.display = 'none';
@@ -123,13 +112,11 @@ const endRecording = async () => {
 	clearInterval(intervalId);
 	audioTrack?.stop();
 
-	await videoEncoder.flush();
 	await audioEncoder.flush();
 	let buffer = muxer.finalize();
 
 	downloadBlob(new Blob([buffer]));
 
-	videoEncoder = null;
 	audioEncoder = null;
 	muxer = null;
 	startTime = null;
@@ -144,49 +131,9 @@ const downloadBlob = (blob) => {
 	let a = document.createElement('a');
 	a.style.display = 'none';
 	a.href = url;
-	a.download = 'picasso.webm';
+	a.download = 'colmena-opus.weba';
 	document.body.appendChild(a);
 	a.click();
 	window.URL.revokeObjectURL(url);
 };
 
-/** CANVAS DRAWING STUFF */
-
-ctx.fillStyle = 'white';
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-let drawing = false;
-let lastPos = { x: 0, y: 0 };
-
-const getRelativeMousePos = (e) => {
-	let rect = canvas.getBoundingClientRect();
-	return { x: e.clientX - rect.x, y: e.clientY - rect.y };
-};
-
-const drawLine = (from, to) => {
-	ctx.beginPath();
-	ctx.moveTo(from.x, from.y);
-	ctx.lineTo(to.x, to.y);
-	ctx.strokeStyle = 'black';
-	ctx.lineWidth = 3;
-	ctx.lineCap = 'round';
-	ctx.stroke();
-};
-
-canvas.addEventListener('pointerdown', (e) => {
-	if (e.button !== 0) return;
-
-	drawing = true;
-	lastPos = getRelativeMousePos(e);
-	drawLine(lastPos, lastPos);
-});
-window.addEventListener('pointerup', () => {
-	drawing = false;
-});
-window.addEventListener('mousemove', (e) => {
-	if (!drawing) return;
-
-	let newPos = getRelativeMousePos(e);
-	drawLine(lastPos, newPos);
-	lastPos = newPos;
-});
