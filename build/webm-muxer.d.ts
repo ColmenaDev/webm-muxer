@@ -8,11 +8,24 @@ declare interface WebMMuxerOptions {
 	 * When using `'buffer'`, the muxed file is simply written to a buffer in memory, which is then returned by the
 	 * muxer's `finalize` method.
 	 *
+	 * If the target is a function, it will be called each time data is output by the muxer - this is useful if you want
+	 * to stream the data. The function will be called with three arguments: the data to write, the offset in bytes at
+	 * which to write the data and a boolean indicating whether the muxer is done writing data. Note that the same
+	 * segment of bytes might be written to multiple times and therefore you need to write the data in the same order
+	 * the function gave it to you.
+	 *
 	 * If the target is of type `FileSystemWritableFileStream`, the file will be written directly to disk as it is being
 	 * muxed. The benefit of this target is the ability to write out very large files, easily exceeding the RAM of the
 	 * machine being used.
 	 */
-	target: 'buffer' | FileSystemWritableFileStream,
+	target: 'buffer' | ((data: Uint8Array, offset: number, done: boolean) => void) | FileSystemWritableFileStream,
+	/**
+	 * Specifies the docType of the muxed multimedia file. This property is optional and defaults to `'webm'`, which is
+	 * a subset of the more general container format, Matroska. Using `'matroska'` alongside an .mkv extension will
+	 * allow you to use all codecs, not just the ones officially supported by WebM. However, there is generally less
+	 * support for .mkv files than there is for .webm and it is less ubiquitous on the web.
+	 */
+	type?: 'webm' | 'matroska',
 	/**
 	 * When set, declares the existence of a video track in the WebM file and configures that video track.
 	 */

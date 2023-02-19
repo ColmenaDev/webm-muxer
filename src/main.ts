@@ -1,5 +1,10 @@
 import { EBMLElement, EBML, EBMLFloat64, EBMLFloat32, EBMLId } from "./ebml";
-import { WriteTarget, ArrayBufferWriteTarget, FileSystemWritableFileStreamWriteTarget } from "./write_target";
+import {
+	WriteTarget,
+	ArrayBufferWriteTarget,
+	FileSystemWritableFileStreamWriteTarget,
+	StreamingWriteTarget
+} from "./write_target";
 
 const VIDEO_TRACK_NUMBER = 1;
 const AUDIO_TRACK_NUMBER = 2;
@@ -12,7 +17,11 @@ const SEGMENT_SIZE_BYTES = 6;
 const CLUSTER_SIZE_BYTES = 5;
 
 interface WebMMuxerOptions {
-	target: 'buffer' | FileSystemWritableFileStream,
+	target:
+		'buffer'
+		| ((data: Uint8Array, offset: number, done: boolean) => void)
+		| FileSystemWritableFileStream
+	type?: 'webm' | 'matroska'
 	video?: {
 		codec: string,
 		width: number,
@@ -74,24 +83,38 @@ class WebMMuxer {
 	#finalized = false;
 
 	constructor(options: WebMMuxerOptions) {
+		this.#validateOptions(options);
 		this.#options = options;
 
 		if (options.target === 'buffer') {
 			this.#target = new ArrayBufferWriteTarget();
-		} else {
+		} else if (options.target instanceof FileSystemWritableFileStream) {
 			this.#target = new FileSystemWritableFileStreamWriteTarget(options.target);
+		} else if (typeof options.target === 'function') {
+			this.#target = new StreamingWriteTarget(options.target);
+		} else {
+			throw new Error(`Invalid target: ${options.target}`);
 		}
 
 		this.#createFileHeader();
 	}
 
+	#validateOptions(options: WebMMuxerOptions) {
+		if (options.type && options.type !== 'webm' && options.type !== 'matroska') {
+			throw new Error(`Invalid type: ${options.type}`);
+		}
+	}
+
 	#createFileHeader() {
 		this.#writeEBMLHeader();
+
 		this.#createSeekHead();
 		this.#createSegmentInfo();
 		this.#createTracks();
 		this.#createSegment();
 		this.#createCues();
+
+		this.#maybeFlushStreamingTarget();
 	}
 
 	#writeEBMLHeader() {
@@ -100,7 +123,7 @@ class WebMMuxer {
 			{ id: EBMLId.EBMLReadVersion, data: 1 },
 			{ id: EBMLId.EBMLMaxIDLength, data: 4 },
 			{ id: EBMLId.EBMLMaxSizeLength, data: 8 },
-			{ id: EBMLId.DocType, data: 'webm' },
+			{ id: EBMLId.DocType, data: this.#options.type ?? 'webm' },
 			{ id: EBMLId.DocTypeVersion, data: 2 },
 			{ id: EBMLId.DocTypeReadVersion, data: 2 }
 		] };
@@ -216,6 +239,12 @@ class WebMMuxer {
 		this.#cues = { id: EBMLId.Cues, data: [] };
 	}
 
+	#maybeFlushStreamingTarget() {
+		if (this.#target instanceof StreamingWriteTarget) {
+			this.#target.flush(false);
+		}
+	}
+
 	get #segmentDataOffset() {
 		return this.#target.dataOffsets.get(this.#segment);
 	}
@@ -259,6 +288,8 @@ class WebMMuxer {
 		} else {
 			this.#videoChunkQueue.push(internalChunk);
 		}
+
+		this.#maybeFlushStreamingTarget();
 	}
 
 	#writeVideoDecoderConfig(meta: EncodedVideoChunkMetadata) {
@@ -367,6 +398,8 @@ class WebMMuxer {
 		if (meta?.decoderConfig) {
 			this.#writeCodecPrivate(this.#audioCodecPrivate, meta.decoderConfig.description);
 		}
+
+		this.#maybeFlushStreamingTarget();
 	}
 
 	/** Converts a read-only external chunk into an internal one for easier use. */
@@ -514,6 +547,8 @@ class WebMMuxer {
 			return this.#target.finalize();
 		} else if (this.#target instanceof FileSystemWritableFileStreamWriteTarget) {
 			this.#target.finalize();
+		} else if (this.#target instanceof StreamingWriteTarget) {
+			this.#target.flush(true);
 		}
 
 		return null;
