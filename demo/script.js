@@ -10,7 +10,6 @@ let audioEncoder = null;
 let startTime = null;
 let recording = false;
 let audioTrack = null;
-let firstAudioTimestamp = null;
 let intervalId = null;
 
 const startRecording = async () => {
@@ -45,20 +44,14 @@ const startRecording = async () => {
 			codec: 'A_OPUS',
 			sampleRate: audioSampleRate,
 			numberOfChannels: 2
-		}
+		},
+		firstTimestampBehavior: 'offset' // Because we're directly pumping a MediaStreamTrack's data into it
 	});
 
 
 	if (audioTrack) {
 		audioEncoder = new AudioEncoder({
-			output(chunk, meta) {
-				// The timestamps set by the chunks are way too large and are not based on when the recording started.
-				// We therefore manually set the timestamp of the chunk, using the first chunk's timestamp as the
-				// zero point.
-				if (firstAudioTimestamp === null) firstAudioTimestamp = chunk.timestamp;
-
-				muxer.addAudioChunk(chunk, meta, chunk.timestamp - firstAudioTimestamp);
-			},
+			output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
 			error: e => console.error(e)
 		});
 		audioEncoder.configure({
