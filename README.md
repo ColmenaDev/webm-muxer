@@ -81,7 +81,8 @@ interface WebMMuxerOptions {
         codec: string,
         width: number,
         height: number,
-        frameRate?: number // Optional, adds metadata to the file
+        frameRate?: number, // Optional, adds metadata to the file
+        alpha?: boolean // If the video contains transparency data
     },
 
     audio?: {
