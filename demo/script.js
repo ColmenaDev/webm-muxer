@@ -36,7 +36,7 @@ const startRecording = async () => {
 	    } catch (e) {}
 	    if (!audioTrack) console.warn("Couldn't acquire a user media audio track.");
 	} else {
-		console.warn("AudioEncoder not available; no need to acquire a user media audio track.");
+		console.warn('AudioEncoder not available; no need to acquire a user media audio track.');
 	}
 
 	endRecordingButton.style.display = 'block';
@@ -66,7 +66,7 @@ const startRecording = async () => {
 			codec: 'opus',
 			numberOfChannels: 2,
 			sampleRate: audioSampleRate,
-			bitrate: 64000,
+			bitrate: 64000
 		});
 
 		// Create a MediaStreamTrackProcessor to get AudioData chunks from the audio track
@@ -113,9 +113,16 @@ const endRecording = async () => {
 	clearInterval(intervalId);
 	audioTrack?.stop();
 
+<<<<<<< HEAD
 	await audioEncoder.flush();
 	let buffer = muxer.finalize();
+=======
+	await videoEncoder?.flush();
+	await audioEncoder?.flush();
+	muxer.finalize();
+>>>>>>> upstream/main
 
+	let { buffer } = muxer.target;
 	downloadBlob(new Blob([buffer]));
 
 	audioEncoder = null;
